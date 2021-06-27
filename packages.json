@@ -1,0 +1,11 @@
+{
+  "name": "simple-queue-worker",
+  "version": "1.0",
+  "author": "Uretgec",
+  "description": "Worker for Sync Request",
+  "dependencies": {
+    "bluebird": "3.7.1",
+    "ioredis": "4.14.2",
+    "request": "2.88.0"
+  }
+}
