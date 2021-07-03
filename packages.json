@@ -1,8 +1,8 @@
 {
-  "name": "simple-queue-worker",
+  "name": "sync-queue-worker",
   "version": "1.0",
   "author": "Uretgec",
-  "description": "Worker for Sync Request",
+  "description": "Worker for data sync between multi region servers",
   "dependencies": {
     "bluebird": "3.7.1",
     "ioredis": "4.14.2",

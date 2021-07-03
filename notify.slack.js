@@ -1,27 +1,28 @@
-// Requires
-var Redis = require("ioredis");
-var request = require("request");
-var createClient = function() {
-    return new Redis({
-        port: 6379,
-        host: '127.0.0.1',
-        family: 4, // 4 (IPv4) or 6 (IPv6)
-        db: 0
-    });
-};
-var subscriberClient = createClient();
+// Requirements
+const Config = require("./config");
+const Redis = require("ioredis");
+const request = require("request");
+
+// Redis Client Connection
+const redisClient = new Redis({
+    port: Config.port,
+    host: Config.host,
+    family: 4, // 4 (IPv4) or 6 (IPv6)
+    db: 0
+});
+const subscriberClient = redisClient();
 
 // Channel Subscribe
 // squeue: sync-queue-worker's redis-prefix argument
-var channelName = 'squeue:notify:slack';
+const slackNotifyChannelKey = Config.prefix + ':notify:slack';
 
 // Event Listener
 subscriberClient.on('ready', function () {
     console.log('im ready');
 });
 
-subscriberClient.subscribe(channelName, function (err, count) {
-    console.log('subscribe', channelName, err, count);
+subscriberClient.subscribe(slackNotifyChannelKey, function (err, count) {
+    console.log('subscribe', slackNotifyChannelKey, err, count);
     if(err) {
 
     } else {
@@ -32,7 +33,7 @@ subscriberClient.subscribe(channelName, function (err, count) {
 subscriberClient.on('message', function (channel, message) {
     console.log('subscribe message', channel, message);
 
-    var webhookUrl = 'https://hooks.slack.com/services/#######################'; // your slack hook url
+    const webhookUrl = 'https://hooks.slack.com/services' + Config.slackHookUrl;  // your slack hook url
 
     request.post(webhookUrl, {
         form: {

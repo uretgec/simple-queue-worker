@@ -1,25 +1,23 @@
-// usage: node index.js prod|docker redis-host 127.0.0.1 redis-prefix squeue
+// Requirements
 const Crypto = require("crypto");
-const Process = require('process');
+const Config = require("./config");
 const Promise = require('bluebird');
 const Request = Promise.promisifyAll(require("request"), {multiArgs: true});
 const Redis = require('ioredis');
 
-// Parse Arguments
-const args = Process.argv.slice(2);
-const env = (typeof args[0] === 'undefined') ? 'prod' : args[0];
-const host = (typeof args[1] === 'undefined') ? '127.0.0.1' : args[1];
-const prefix = (typeof args[2] === 'undefined') ? 'squeue' : args[2];
+// Redis Client Connection
+const redisClient = new Redis({
+    port: Config.port,
+    host: Config.host,
+    family: 4, // 4 (IPv4) or 6 (IPv6)
+    db: 0
+});
 
 // Local Variables
-const redis = new Redis({
-    host: host,
-    prefix: prefix
-});
-const syncBlockKey = prefix + ':sync:block';
-const syncQueueKey = prefix + ':sync:queue:list';
+const syncBlockKey = Config.prefix + ':sync:block';
+const syncQueueKey = Config.prefix + ':sync:queue:list';
 const syncListenerKey = 'queuechannel';
-const slackNotifyChannelKey = prefix + ':notify:slack';
+const slackNotifyChannelKey = Config.prefix + ':notify:slack';
 const sessionid = Crypto.randomBytes(16).toString("hex");
 const maxRetry = 3;
 const maxConcurrentLimit = 50;
@@ -40,15 +38,7 @@ function logIt(data) {
 }
 
 // Stats
-let stats = {
-    total: 0,
-    success: 0,
-    error: 0,
-    retry: 0,
-    startDate: 0,
-    endDate: 0,
-    elapsedTime: 0
-};
+let stats = require("./model/SyncDataStat");
 
 // Queue Event Listener
 const EventEmitter = require('events');
@@ -79,15 +69,15 @@ queueEmitter.on(syncListenerKey, function(data) {
 // Start Process
 let queueList = async function(channel, blockChannel) {
     // Check Blocking
-    let isQueueBlock = await redis.exists(blockChannel);
+    let isQueueBlock = await redisClient.exists(blockChannel);
     if (isQueueBlock) throw Error('Queue already blocked');
 
     // Start Process
-    let totalQueue = await redis.llen(channel);
+    let totalQueue = await redisClient.llen(channel);
     if ( !(totalQueue > 0) ) throw Error('Queue list is empty');
 
     // Start Blocking
-    let queueBlock = await redis.set(blockChannel, 1);
+    let queueBlock = await redisClient.set(blockChannel, 1);
     if (!queueBlock) throw Error('Queue is not blocking');
     totalQueue = (totalQueue > maxQueueLimit) ? maxQueueLimit : totalQueue;
     queueEmitter.emit(syncListenerKey, {type: 'total',count: totalQueue});
@@ -95,14 +85,14 @@ let queueList = async function(channel, blockChannel) {
     // Sync Process
     let queueList = [];
     for (let item = 1; item<=totalQueue; item++) {
-        let queueData = await redis.lpop(channel);
+        let queueData = await redisClient.lpop(channel);
         queueData = JSON.parse(queueData);
         if (queueData === null) throw Error('Queue data is null!!!');
 
         if(queueData.retry >= maxRetry) {
             queueEmitter.emit(syncListenerKey, {type:'retry', count:1});
             let failQueueKey = channel + ':fail';
-            redis.rpush(failQueueKey, JSON.stringify(queueData));
+            redisClient.rpush(failQueueKey, JSON.stringify(queueData));
             continue;
         }
 
@@ -134,7 +124,7 @@ let queueList = async function(channel, blockChannel) {
             // Return The Queue
             queueData.retry += 1;
             queueData.status = 'error';
-            redis.rpush(channel, JSON.stringify(queueData));
+            redisClient.rpush(channel, JSON.stringify(queueData));
 
             // Collect Data
             response.url = queueData.url;
@@ -166,7 +156,7 @@ queueList(syncQueueKey, syncBlockKey)
                 {
                     "color":"good",
                     "fields":[],
-                    "footer":"Simple Queue API",
+                    "footer":"Sync Queue API",
                     "ts": Date.now()
                 }
             ]
@@ -181,8 +171,8 @@ queueList(syncQueueKey, syncBlockKey)
         });
 
         // Publish Queue Worker Stats
-        if(env === 'prod') {
-            redis.publish(slackNotifyChannelKey, JSON.stringify(message));
+        if(Config.env === 'prod') {
+            redisClient.publish(slackNotifyChannelKey, JSON.stringify(message));
         }
 
     })
@@ -190,7 +180,7 @@ queueList(syncQueueKey, syncBlockKey)
         logIt({error: err.message, stats: stats});
     })
     .finally(function () {
-        redis.del(syncBlockKey);
+        redisClient.del(syncBlockKey);
         Process.exit(1);
     })
 ;
